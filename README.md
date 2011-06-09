@@ -3,7 +3,7 @@
 ## pgdiff
 
 ## smail
-Simple sendmail with stdin and multiple attachment support
+Simple `sendmail` with stdin and multiple attachment support
 
 Usage Samples:
 
@@ -27,3 +27,4 @@ Usage Samples:
     ### is the same of ###
     smail simple email -f from@email.com -t to@email.com -b 'email body'
 
+Attachment support needs `uuencode` program; in ubuntu you can install it using `sudo apt-get install sharutils`

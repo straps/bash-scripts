@@ -18,9 +18,9 @@ Tables must have the same structure for pgdiff to work
 
 Adding the `--demo` option, updates are not executed but only showed on screen; really useful to see table differences
 
-*IMPORTANT*: --comparefld remove and reinserts founded records
+**IMPORTANT**: --comparefld remove and reinserts founded records
 
-*VERY IMPORTANT*: I'm not responsible for usage of the software or for any software bug
+**VERY IMPORTANT**: I'm not responsible for usage of the software or for any software bug
 
 ## smail
 Simple `sendmail` with stdin and multiple attachment support

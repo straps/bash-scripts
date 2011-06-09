@@ -4,7 +4,7 @@ Scripts ordered alphabetically
 
 ## pgdiff
 
-Tables must have the same structure for pgdiff to work
+PostgreSQL diff update utility; tables must have the same structure for pgdiff to work
 
     #Copy missing customers from database dbSrc to customers of dbDest database on localhost, finding missing records using the id field
     pgdiff --db dbSrc --db2 dbDest --table customers --keyfld id

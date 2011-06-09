@@ -1,0 +1,105 @@
+#!/bin/bash
+set -e      #exit on error
+
+SUBJECT=
+TO=
+FROM=
+REPLYTO=
+CC=
+BCC=
+BODY=
+CONTENTTYPE="text/plain"
+ATTACH=()
+
+BOUNDARY=`date +%s|md5sum`
+BOUNDARY="BOUNDARY${BOUNDARY:0:32}"
+TMPFILE=`mktemp`
+
+function usage {
+  echo "Usage: $0 -s|--subject subject -t|--to address [-f|--from address] [-r|--replyto from] [-b|--body stdin] [--cc address] [--bcc address] [-a|--attach file] [--contenttype|-c text/plain]"
+}
+
+function log {
+  echo "`date +%Y%m%d-%H:%M:%S`  - $1"
+}
+
+function doit {
+  log '--- STARTING ---'
+
+  (
+  [ -n "$FROM" ] && echo "From: $FROM" && echo "Reply-To: $REPLYTO"
+  echo "To: $TO"
+  [ -n "$CC" ] && echo "Cc: $CC"
+  [ -n "$BCC" ] && echo "Bcc: $BCC"
+  echo "MIME-Version: 1.0"
+  echo "Content-Type: multipart/mixed; boundary=\"$BOUNDARY\""
+  echo "Subject: $SUBJECT"
+  echo ""
+  echo "--$BOUNDARY"
+  echo "Content-Type: $CONTENTTYPE"
+  echo ""
+  echo "$BODY"
+  echo ""
+
+  #Parsing Multiple -a|--attach Attachments
+  for f in "${ATTACH[@]}"; do 
+    FILENAME=`basename $f`;
+    cat $f | uuencode --base64 $FILENAME > $TMPFILE;
+    sed -i -e '1,1d' -e '$d' $TMPFILE   #removes first & last lines from $TMP
+    DATA=`cat $TMPFILE`
+    
+    echo "--$BOUNDARY"
+    echo "Content-Type: `mimetype -b $f`; Name=\"$FILENAME\""
+    echo "Content-Transfer-Encoding: base64"
+    echo "Content-Disposition: attachment; filename=\"$FILENAME\";";
+    echo ""
+    echo "$DATA"
+    echo ""
+  done
+
+  echo ""
+  echo "--$BOUNDARY"
+  echo ""
+
+  ) | sendmail -t
+  #) | tee
+
+  log "--- DONE ---"
+}
+
+while [ "$1" ]; do
+	case "$1" in
+		-t|--to)                          TO="$2; $TO"; shift ;;
+		-f|--from)                        FROM="$2"; shift ;;
+		--cc)                             CC="$2; $CC"; shift ;;
+		--bcc)                            BCC="$2; $BCC"; shift ;;
+		-s|--subject)                     SUBJECT="$2"; shift ;;
+		-c|--contenttype)                 CONTENTTYPE="$2"; shift ;;
+    -a|--attach)                      ATTACH=(${ATTACH[@]-} "$2"); shift ;;
+    
+		-b|--body)                        BODY="$BODY
+$2"; shift ;;
+
+    #if option is unknown, append it to subject
+    *)                                SUBJECT="$SUBJECT $1" ;;
+    
+	esac
+	shift
+done
+
+#Global Variables
+[ -n "$FROM" ] || FROM=$SMAILFROM
+
+#Mandatory
+[ -z "$SUBJECT" ] || [ -z "$TO" ] && usage && exit 1
+
+#Default Values
+[ -n "$REPLYTO" ] || REPLYTO="$FROM"
+
+while read -t 1 B; do
+ BODY="$BODY
+$B"
+done
+
+doit
+

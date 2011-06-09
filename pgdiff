@@ -1,0 +1,124 @@
+#!/bin/bash
+set -e      #exit on error
+
+HOST1=localhost
+HOST2=localhost
+DB1=
+DB2=
+TABLE1=
+TABLE2=
+USER1=postgres
+USER2=
+PWD1=
+PWD2=
+KEYFLD1=
+KEYFLD2=
+COMPAREFLD1=
+COMPAREFLD2=
+DEMO=
+
+function usage {
+  echo "Usage: $0 --db[1] db --table[1] table --keyfld fld [--demo] [--host[1] localhost] [--user1 postgres] [--pwd1 pwd] [--comparefld1 fld] [--host2 host1] [--db2 db1] [--user2 user1] [--pwd2 pwd1] [--table2 table1] [--keyfld2 keyfld1] [--comparefld2 fld1] "
+}
+
+function log {
+  echo "`date +%Y%m%d-%H:%M:%S`  - $1"
+}
+
+function doit {
+  log '--- STARTING ---'
+  [ -n "$DEMO" ] && log '--- DEMO mode does not update records ---'
+
+  TABLETMP="$TABLE1""_tmp"
+  F1="/tmp/$TABLE1.sql"
+  F2="/tmp/$TABLETMP.sql"
+  QSELECT="select * from $TABLETMP where $KEYFLD1 in ( "\
+"select $TABLETMP.$KEYFLD1 from $TABLETMP "\
+"left join $TABLE2 on $TABLETMP.$KEYFLD1=$TABLE2.$KEYFLD2 "\
+"where $TABLE2.$KEYFLD2 is null) "
+  QCOMPARE="select $TABLETMP.*, $TABLE2.$COMPAREFLD2 as old_""$COMPAREFLD2"" from $TABLETMP join $TABLE2 on $TABLETMP.$KEYFLD1=$TABLE2.$KEYFLD2 where $TABLETMP.$KEYFLD1 in ( "\
+"select $TABLETMP.$KEYFLD1 from $TABLETMP "\
+"left join $TABLE2 on $TABLETMP.$KEYFLD1=$TABLE2.$KEYFLD2 "\
+"where $TABLE2.$COMPAREFLD2<$TABLETMP.$COMPAREFLD1) "
+  
+  log "Dumping $TABLE1 on $F1"  
+  [ -z "$PWD1" ] || PGPASSWORD=$PWD1
+  pg_dump -U $USER1 -h $HOST1 -t $TABLE1 $DB1 > $F1
+  
+  log "Renaming $TABLE1 in $TABLETMP on file $F2"
+  sed -e "s/TABLE $TABLE1/TABLE $TABLETMP/" \
+      -e "s/public\.$TABLE1/public\.$TABLETMP/" \
+      -e "s/Y $TABLE1/Y $TABLETMP/" \
+      -e "s/_""$TABLE1""/_""$TABLETMP""/" \
+      -e "s/ON $TABLE1/ON $TABLETMP/" \
+      $F1 > $F2
+  
+  log "Deleting $TABLETMP on destination db $DB2"
+  [ -z "$PWD2" ] || PGPASSWORD=$PWD2
+  psql -q -w -U $USER2 -h $HOST2 -c "drop table IF EXISTS $TABLETMP" $DB2
+  
+  log "Creating $TABLETMP on destination db $DB2"
+  psql -q -w -U $USER2 -h $HOST2 -f $F2 $DB2 1>/dev/null
+  
+  log "Missing Records: "
+  psql -q -w -U $USER2 -h $HOST2 -c "$QSELECT" $DB2
+  
+  if [ -n "$COMPAREFLD1" ]; then
+    log "Updating $TABLE2.$COMPAREFLD2 based on $TABLETMP.$COMPAREFLD1"
+    
+    log "Greater Records: "
+    psql -q -w -U $USER2 -h $HOST2 -c "$QCOMPARE" $DB2 | tee
+    
+    [ -z "$DEMO" ] && log "Deleting Greater Records"
+    [ -z "$DEMO" ] && psql -q -w -a -U $USER2 -h $HOST2 -c "delete from $TABLE2 where codice in (select codice from ($QCOMPARE) q)" $DB2
+  fi
+  
+  [ -z "$DEMO" ] && log "Inserting Records"
+  [ -z "$DEMO" ] && psql -q -w -U $USER2 -h $HOST2 -c "insert into $TABLE2 $QSELECT" $DB2  
+  
+  #log "Deleting $TABLETMP on destination db $DB2"
+  #psql -q -w -U $USER2 -h $HOST2 -c "drop table $TABLETMP" $DB2
+  
+  log "--- DONE ---"
+}
+
+#pg_dump -t tabnume tecetidb | sed -e 's/TABLE tabnume/TABLE tabnume_tmp/' -e 's/public\.tabnume/public\.tabnume_tmp/' -e 's/Y tabnume/Y tabnume_tmp/' -e 's/_tabnume_/_tabnume_tmp_/' -e 's/ON tabnume/ON tabnume_tmp/' | grep tabnume
+
+while [ "$1" ]; do
+	case "$1" in
+		--host)									        HOST1=$2; HOST2=$2; shift ;;
+		--host1)									      HOST1=$2; shift ;;
+		--host2)									      HOST2=$2; shift ;;
+		--db|--db1)									    DB1=$2; shift ;;
+		--db2)									        DB2=$2; shift ;;
+		--table|--table1)								TABLE1=$2; shift ;;
+		--table2)									      TABLE2=$2; shift ;;
+		--user|--user1)								  USER1=$2; shift ;;
+		--user2)									      USER2=$2; shift ;;
+		--pwd|--pwd1)								    PWD1=$2; shift ;;
+		--pwd2)									        PWD2=$2; shift ;;
+		--keyfld|--keyfld1)							KEYFLD1=$2; shift ;;
+		--keyfld2)									    KEYFLD2=$2; shift ;;
+		
+		#Se specificati, dopo aver inserito i record mancanti, la procedura compara i campi
+		--comparefld|--comparefld1)			COMPAREFLD1=$2; shift ;;
+		--comparefld2)									COMPAREFLD2=$2; shift ;;
+		
+		#Se passato, non esegue gli update su database
+		--demo)                         DEMO=1 ;;
+		
+	esac
+	shift
+done
+
+[ -z "$DB2" ] && DB2=$DB1
+[ -z "$TABLE2" ] && TABLE2=$TABLE1
+[ -z "$USER2" ] && USER2=$USER1
+[ -z "$PWD2" ] && PWD2=$PWD1
+[ -z "$KEYFLD2" ] && KEYFLD2=$KEYFLD1
+[ -z "$COMPAREFLD2" ] && COMPAREFLD2=$COMPAREFLD1
+
+[ -z "$DB1" ] || [ -z "$TABLE1" ] || [ -z "$KEYFLD1" ] && usage && exit 1
+
+doit
+
